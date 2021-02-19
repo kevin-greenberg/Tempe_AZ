@@ -1,0 +1,85 @@
+---
+title: "Map of Restaurants in Tempe, AZ"
+author: "Kevin Greenberg"
+output: html_document
+---
+
+The purpose of this document is to show how MySQL can be used to join and filter tables, then use R to create a map of the data set. Essentially, this is a nerdy way of taking Yelp reviews and finding specific restaurants.
+
+The data came from https://relational.fit.cvut.cz/dataset/Carcinogenesis
+This is a data dump with numerous schemas. For this instance, I used the Yelp schema.
+
+MySQL was used to join 3 tables giving information about restaurants in Arizona. I then filtered the table to find restaurants in Tempe, AZ. The filter consisted of non-fast food restaurants, that are active, and have high ratings (4/5 at least). In addition, we only want reviews from people who have given over 10 reviews and have an average of at least 4 stars as reviewers, this will help ensure we are getting quality reviews. Lastly, we want outdoor restaurants for COVID. Below is the MySQL code and the map with restaurant information.
+
+### MySQL code
+```{r eval=F, echo=T}
+
+
+Use Yelp;
+
+SELECT  -- Columns of interest, with lat and long for mapping purposes
+		b.business_name AS 'Restaurant name',
+        ROUND (AVG(r.stars), 1) AS 'Average stars', 
+        COUNT(r.stars) AS 'Number of reviews',
+        b.categories AS Cuisine,
+        b.full_address AS Address,
+		b.latitude, 
+        b.longitude
+	FROM Business b -- Join the 3 tables
+		JOIN Reviews r USING (business_id)
+		JOIN Users u USING (user_id)
+	WHERE b.categories REGEXP 'Restaurants' 
+		AND b.categories NOT REGEXP 'Fast'
+		AND b.city REGEXP 'Tempe'
+		AND b.active = 'true'
+		AND b.stars >= 4
+        AND u.average_stars >= 4
+        AND u.review_count >= 10
+        AND r.review_text REGEXP 'outside|outdoor|patio'
+	GROUP BY b.business_name, b.stars, b.categories, b.full_address, b.latitude, b. longitude 
+;
+
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+
+# Load packages
+library(tidyverse)
+library(ggmap)
+library(mapview)
+library(sp)
+library(tmap)
+library(rgdal)
+library(leaflet)
+
+#Load data
+rests <- read.csv("C:/Users/kevin/Desktop/Portfolio/Tempe_AZ/docs/Restaurants_in_AZ.csv", comment.char="#")
+```
+
+
+```{r make map}
+#Create map
+rests1 <- rests
+coordinates(rests1) <- ~ longitude + latitude
+proj4string(rests1) <- "+init=epsg:4326"
+```
+
+#### When you click on the marker it will give you information for that restaurant
+```{r fig.align='center', fig.height=6, fig.width=10}
+labs <- lapply(seq(nrow(rests)), function(i) {
+  paste0( '<p>Name: ', rests[i, "Restaurant.name"], '<p></p>Average stars: ', 
+          rests[i, "Average.stars"], '<p></p>Number of reviews: ', 
+          rests[i, "Number.of.reviews"],'</p><p>Cuisine: ',
+          rests[i, "Cuisine"],'</p><p>Address: ',
+          rests[i, "Address"], '</p>' ) 
+})
+
+
+leaflet(rests) %>% addTiles() %>%
+  addMarkers(~longitude , ~latitude, popup = lapply(labs, htmltools::HTML))
+
+
+```
